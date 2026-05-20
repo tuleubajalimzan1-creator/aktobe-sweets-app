@@ -1,0 +1,25 @@
+{
+  "expo": {
+    "name": "Aktobe Sweets",
+    "slug": "aktobe-sweets-app",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "scheme": "aktobe-sweets",
+    "plugins": [
+      "expo-router",
+      "expo-asset",
+      "expo-font"
+    ],
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "kz.aktobe.sweets"
+    },
+    "android": {
+      "package": "kz.aktobe.sweets"
+    },
+    "experiments": {
+      "typedRoutes": false
+    }
+  }
+}
