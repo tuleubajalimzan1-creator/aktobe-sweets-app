@@ -3,10 +3,12 @@ import { StatusBar } from 'expo-status-bar'
 import { GestureHandlerRootView } from 'react-native-gesture-handler'
 import { StyleSheet } from 'react-native'
 import { AppProvider } from '@/context/AppContext'
+import { SettingsProvider } from '@/context/SettingsContext'
 
 export default function RootLayout() {
   return (
     <GestureHandlerRootView style={styles.root}>
+      <SettingsProvider>
       <AppProvider>
         <StatusBar style="dark" />
         <Stack screenOptions={{ headerShown: false }}>
@@ -21,6 +23,7 @@ export default function RootLayout() {
           <Stack.Screen name="settings"       options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
         </Stack>
       </AppProvider>
+      </SettingsProvider>
     </GestureHandlerRootView>
   )
 }

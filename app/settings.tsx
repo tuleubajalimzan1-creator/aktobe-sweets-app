@@ -1,73 +1,188 @@
-import React, { useState } from 'react'
+import React, { useRef, useEffect, useState } from 'react'
 import {
-  View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert,
+  View, Text, StyleSheet, ScrollView, TouchableOpacity,
+  Alert, Modal, Animated, Dimensions,
 } from 'react-native'
 import { useRouter } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { COLORS, FONTS, RADIUS, SHADOWS, SPACING } from '@/constants/theme'
+import { useSettings, SETTINGS_DEFAULTS } from '@/context/SettingsContext'
 
+const { width: W } = Dimensions.get('window')
+
+const LANGUAGES = [
+  { id: 'ru' as const, label: 'Русский',  flag: '🇷🇺', sub: 'Russian'  },
+  { id: 'kz' as const, label: 'Қазақша', flag: '🇰🇿', sub: 'Kazakh'   },
+]
+
+/* ── Animated Toggle ── */
 function Toggle({ value, onToggle }: { value: boolean; onToggle: () => void }) {
+  const pos = useRef(new Animated.Value(value ? 1 : 0)).current
+
+  useEffect(() => {
+    Animated.spring(pos, {
+      toValue: value ? 1 : 0,
+      useNativeDriver: true,
+      speed: 55,
+      bounciness: 7,
+    }).start()
+  }, [value])
+
+  const thumbX = pos.interpolate({ inputRange: [0, 1], outputRange: [2, 22] })
+
   return (
-    <TouchableOpacity
-      onPress={onToggle}
-      style={[styles.toggle, value && styles.toggleActive]}
-      activeOpacity={0.8}
-    >
-      <View style={[styles.toggleThumb, value && styles.toggleThumbActive]} />
+    <TouchableOpacity onPress={onToggle} activeOpacity={0.85}>
+      <View style={[styles.toggle, value && styles.toggleOn]}>
+        <Animated.View style={[styles.toggleThumb, { transform: [{ translateX: thumbX }] }]} />
+      </View>
     </TouchableOpacity>
   )
 }
 
-function RowToggle({ icon, label, value, onToggle }: {
-  icon: string; label: string; value: boolean; onToggle: () => void
+/* ── Toggle Row ── */
+function ToggleRow({
+  iconName, iconBg, iconColor, label, desc, value, onToggle,
+}: {
+  iconName: string; iconBg: string; iconColor: string
+  label: string; desc: string; value: boolean; onToggle: () => void
 }) {
   return (
     <View style={styles.row}>
-      <View style={styles.rowIconWrap}>
-        <Ionicons name={icon as any} size={18} color={COLORS.chocolate} />
+      <View style={[styles.iconBadge, { backgroundColor: iconBg }]}>
+        <Ionicons name={iconName as any} size={17} color={iconColor} />
       </View>
-      <Text style={styles.rowLabel}>{label}</Text>
+      <View style={styles.rowText}>
+        <Text style={styles.rowLabel}>{label}</Text>
+        <Text style={styles.rowDesc}>{desc}</Text>
+      </View>
       <Toggle value={value} onToggle={onToggle} />
     </View>
   )
 }
 
-function RowAction({ icon, label, value, onPress, danger }: {
-  icon: string; label: string; value?: string; onPress: () => void; danger?: boolean
+/* ── Action Row ── */
+function ActionRow({
+  iconName, iconBg, iconColor, label, value, onPress, danger = false,
+}: {
+  iconName: string; iconBg: string; iconColor: string
+  label: string; value?: string; onPress: () => void; danger?: boolean
 }) {
   return (
-    <TouchableOpacity style={styles.row} onPress={onPress} activeOpacity={0.75}>
-      <View style={[styles.rowIconWrap, danger && styles.rowIconDanger]}>
-        <Ionicons name={icon as any} size={18} color={danger ? '#dc2626' : COLORS.chocolate} />
+    <TouchableOpacity style={styles.row} onPress={onPress} activeOpacity={0.7}>
+      <View style={[styles.iconBadge, { backgroundColor: iconBg }]}>
+        <Ionicons name={iconName as any} size={17} color={iconColor} />
       </View>
-      <Text style={[styles.rowLabel, danger && { color: '#dc2626' }]}>{label}</Text>
-      {value && <Text style={styles.rowValue}>{value}</Text>}
-      <Ionicons name="chevron-forward" size={16} color={COLORS.border} />
+      <Text style={[styles.rowLabel, danger && styles.dangerText]}>{label}</Text>
+      {value ? <Text style={styles.rowValue}>{value}</Text> : null}
+      <Ionicons
+        name="chevron-forward"
+        size={15}
+        color={danger ? '#dc2626' : COLORS.border}
+        style={{ marginLeft: value ? 2 : 0 }}
+      />
     </TouchableOpacity>
   )
 }
 
+/* ── Section ── */
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <View style={styles.section}>
       <Text style={styles.sectionTitle}>{title}</Text>
       <View style={[styles.sectionCard, SHADOWS.sm]}>
-        {children}
+        {React.Children.map(children, (child, i) => (
+          <>
+            {i > 0 && <View style={styles.divider} />}
+            {child}
+          </>
+        ))}
       </View>
     </View>
   )
 }
 
-export default function SettingsScreen() {
-  const router = useRouter()
-  const [pushEnabled, setPushEnabled] = useState(true)
-  const [emailEnabled, setEmailEnabled] = useState(false)
-  const [promoEnabled, setPromoEnabled] = useState(true)
-  const [activityEnabled, setActivityEnabled] = useState(true)
-  const [privateProfile, setPrivateProfile] = useState(false)
-  const [showPrice, setShowPrice] = useState(true)
+/* ── Language Picker Modal ── */
+function LangPicker({
+  visible, current, onSelect, onClose, title,
+}: {
+  visible: boolean; current: string
+  onSelect: (id: 'ru' | 'kz') => void; onClose: () => void; title: string
+}) {
+  const slideY = useRef(new Animated.Value(300)).current
 
-  const confirm = (msg: string) => Alert.alert('Готово', msg)
+  useEffect(() => {
+    if (visible) {
+      Animated.spring(slideY, {
+        toValue: 0, useNativeDriver: true, tension: 60, friction: 10,
+      }).start()
+    } else {
+      Animated.timing(slideY, { toValue: 300, duration: 220, useNativeDriver: true }).start()
+    }
+  }, [visible])
+
+  if (!visible) return null
+
+  return (
+    <Modal transparent animationType="none" onRequestClose={onClose}>
+      <TouchableOpacity style={styles.backdrop} activeOpacity={1} onPress={onClose} />
+      <Animated.View style={[styles.langSheet, { transform: [{ translateY: slideY }] }]}>
+        <View style={styles.langHandle} />
+        <Text style={styles.langTitle}>{title}</Text>
+        {LANGUAGES.map(lang => {
+          const active = lang.id === current
+          return (
+            <TouchableOpacity
+              key={lang.id}
+              style={[styles.langRow, active && styles.langRowActive]}
+              onPress={() => { onSelect(lang.id); onClose() }}
+              activeOpacity={0.75}
+            >
+              <Text style={styles.langFlag}>{lang.flag}</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.langName, active && styles.langNameActive]}>{lang.label}</Text>
+                <Text style={styles.langSub}>{lang.sub}</Text>
+              </View>
+              {active && <Ionicons name="checkmark-circle" size={20} color={COLORS.chocolate} />}
+            </TouchableOpacity>
+          )
+        })}
+      </Animated.View>
+    </Modal>
+  )
+}
+
+/* ── Main Screen ── */
+export default function SettingsScreen() {
+  const router    = useRouter()
+  const insets    = useSafeAreaInsets()
+  const { settings, t, update, reset } = useSettings()
+  const [showLang, setShowLang] = useState(false)
+
+  const langLabel = LANGUAGES.find(l => l.id === settings.language)?.label ?? 'Русский'
+
+  const confirmLogout = () => {
+    Alert.alert(t.logoutTitle, t.logoutMsg, [
+      { text: t.cancel, style: 'cancel' },
+      {
+        text: t.logoutConfirm, style: 'destructive',
+        onPress: () => {
+          reset()
+          router.back()
+        },
+      },
+    ])
+  }
+
+  const confirmReset = () => {
+    Alert.alert(t.resetTitle, t.resetMsg, [
+      { text: t.cancel, style: 'cancel' },
+      {
+        text: t.resetConfirm, style: 'destructive',
+        onPress: reset,
+      },
+    ])
+  }
 
   return (
     <View style={styles.root}>
@@ -76,63 +191,144 @@ export default function SettingsScreen() {
 
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity style={styles.closeBtn} onPress={() => router.back()}>
-          <Ionicons name="close" size={20} color={COLORS.chocolate} />
+        <TouchableOpacity style={styles.backBtn} onPress={() => router.back()} activeOpacity={0.75}>
+          <Ionicons name="close" size={19} color={COLORS.chocolate} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Настройки</Text>
-        <View style={{ width: 32 }} />
+        <Text style={styles.headerTitle}>{t.settings}</Text>
+        <View style={{ width: 36 }} />
       </View>
 
       <ScrollView
         style={styles.scroll}
-        contentContainerStyle={styles.content}
+        contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 40 }]}
         showsVerticalScrollIndicator={false}
       >
-        {/* Уведомления */}
-        <Section title="Уведомления">
-          <RowToggle icon="notifications-outline" label="Push-уведомления" value={pushEnabled} onToggle={() => setPushEnabled(v => !v)} />
-          <View style={styles.divider} />
-          <RowToggle icon="mail-outline" label="Email-рассылка" value={emailEnabled} onToggle={() => setEmailEnabled(v => !v)} />
-          <View style={styles.divider} />
-          <RowToggle icon="pricetag-outline" label="Акции и скидки" value={promoEnabled} onToggle={() => setPromoEnabled(v => !v)} />
-          <View style={styles.divider} />
-          <RowToggle icon="pulse-outline" label="Активность в ленте" value={activityEnabled} onToggle={() => setActivityEnabled(v => !v)} />
+
+        {/* ── УВЕДОМЛЕНИЯ ── */}
+        <Section title={t.notifications}>
+          <ToggleRow
+            iconName="notifications"
+            iconBg="#fef3c7"
+            iconColor="#d97706"
+            label={t.push}
+            desc={t.pushDesc}
+            value={settings.pushNotifications}
+            onToggle={() => update('pushNotifications', !settings.pushNotifications)}
+          />
+          <ToggleRow
+            iconName="mail"
+            iconBg="#fce7f3"
+            iconColor={COLORS.pink}
+            label={t.email}
+            desc={t.emailDesc}
+            value={settings.emailNotifications}
+            onToggle={() => update('emailNotifications', !settings.emailNotifications)}
+          />
+          <ToggleRow
+            iconName="pricetag"
+            iconBg="#fdf5ee"
+            iconColor={COLORS.gold}
+            label={t.promos}
+            desc={t.promosDesc}
+            value={settings.promotions}
+            onToggle={() => update('promotions', !settings.promotions)}
+          />
+          <ToggleRow
+            iconName="pulse"
+            iconBg={COLORS.greenBg}
+            iconColor={COLORS.greenText}
+            label={t.feedActivity}
+            desc={t.feedActivityDesc}
+            value={settings.feedActivity}
+            onToggle={() => update('feedActivity', !settings.feedActivity)}
+          />
         </Section>
 
-        {/* Приватность */}
-        <Section title="Приватность">
-          <RowToggle icon="lock-closed-outline" label="Закрытый профиль" value={privateProfile} onToggle={() => setPrivateProfile(v => !v)} />
-          <View style={styles.divider} />
-          <RowToggle icon="eye-outline" label="Показывать цены" value={showPrice} onToggle={() => setShowPrice(v => !v)} />
-          <View style={styles.divider} />
-          <RowAction icon="document-text-outline" label="Политика конфиденциальности" onPress={() => confirm('Открываем политику...')} />
+        {/* ── ПРИВАТНОСТЬ ── */}
+        <Section title={t.privacy}>
+          <ToggleRow
+            iconName="lock-closed"
+            iconBg="#f0f4ff"
+            iconColor="#4f6ef7"
+            label={t.privateProfile}
+            desc={t.privateProfileDesc}
+            value={settings.privateProfile}
+            onToggle={() => update('privateProfile', !settings.privateProfile)}
+          />
+          <ToggleRow
+            iconName="eye"
+            iconBg="#fdf8f3"
+            iconColor={COLORS.muted}
+            label={t.showPrices}
+            desc={t.showPricesDesc}
+            value={settings.showPrices}
+            onToggle={() => update('showPrices', !settings.showPrices)}
+          />
+          <ActionRow
+            iconName="document-text"
+            iconBg="#f3f4f6"
+            iconColor="#6b7280"
+            label={t.privacyPolicy}
+            onPress={() => Alert.alert(t.privacyPolicy, 'Политика конфиденциальности будет доступна в ближайшее время.', [{ text: 'OK' }])}
+          />
         </Section>
 
-        {/* Приложение */}
-        <Section title="Приложение">
-          <RowAction icon="language-outline" label="Язык" value="Русский" onPress={() => Alert.alert('Язык', 'Доступные: Русский, Қазақша, English')} />
-          <View style={styles.divider} />
-          <RowAction icon="color-palette-outline" label="Тема" value="Светлая" onPress={() => Alert.alert('Тема', 'Сейчас: Светлая (Dark mode скоро)')} />
-          <View style={styles.divider} />
-          <RowAction icon="information-circle-outline" label="О приложении" value="v1.0.0" onPress={() => Alert.alert('Aktobe Sweets', 'Версия 1.0.0\nСделано с ❤️ в Актобе')} />
-          <View style={styles.divider} />
-          <RowAction icon="star-outline" label="Оценить приложение" onPress={() => confirm('Спасибо за оценку!')} />
+        {/* ── ПРИЛОЖЕНИЕ ── */}
+        <Section title={t.app}>
+          <ActionRow
+            iconName="language"
+            iconBg="#fce7f3"
+            iconColor={COLORS.pink}
+            label={t.language}
+            value={langLabel}
+            onPress={() => setShowLang(true)}
+          />
+          <View style={styles.row}>
+            <View style={[styles.iconBadge, { backgroundColor: '#fdf8f3' }]}>
+              <Text style={{ fontSize: 16 }}>🍰</Text>
+            </View>
+            <View style={styles.rowText}>
+              <Text style={styles.rowLabel}>{t.about}</Text>
+              <Text style={styles.rowDesc}>{t.aboutDesc}</Text>
+            </View>
+            <Text style={styles.versionBadge}>v1.0.0</Text>
+          </View>
         </Section>
 
-        {/* Аккаунт */}
-        <Section title="Аккаунт">
-          <RowAction icon="key-outline" label="Сменить пароль" onPress={() => confirm('Письмо отправлено на почту')} />
-          <View style={styles.divider} />
-          <RowAction icon="trash-outline" label="Удалить аккаунт" onPress={() => Alert.alert('Удалить аккаунт?', 'Это действие нельзя отменить', [
-            { text: 'Отмена', style: 'cancel' },
-            { text: 'Удалить', style: 'destructive', onPress: () => {} },
-          ])} danger />
-        </Section>
+        {/* ── ВЫХОД И СБРОС ── */}
+        <View style={styles.bottomBtns}>
+          <TouchableOpacity style={styles.btnLogout} onPress={confirmLogout} activeOpacity={0.8}>
+            <Ionicons name="log-out-outline" size={18} color="#dc2626" />
+            <Text style={styles.btnLogoutText}>{t.logout}</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity style={styles.btnReset} onPress={confirmReset} activeOpacity={0.8}>
+            <Ionicons name="refresh-outline" size={16} color={COLORS.muted} />
+            <Text style={styles.btnResetText}>{t.resetSettings}</Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* ── FOOTER ── */}
+        <View style={styles.footer}>
+          <Text style={styles.footerVersion}>{t.version}</Text>
+          <Text style={styles.footerMade}>{t.madeIn}</Text>
+        </View>
+
       </ScrollView>
+
+      {/* ── LANGUAGE PICKER ── */}
+      <LangPicker
+        visible={showLang}
+        current={settings.language}
+        title={t.selectLanguage}
+        onSelect={(id) => update('language', id)}
+        onClose={() => setShowLang(false)}
+      />
     </View>
   )
 }
 
+/* ── Styles ── */
 const styles = StyleSheet.create({
   root: {
     flex: 1,
@@ -141,7 +337,7 @@ const styles = StyleSheet.create({
   handle: {
     width: 36, height: 4,
     borderRadius: 2,
-    backgroundColor: COLORS.border,
+    backgroundColor: COLORS.borderSolid,
     alignSelf: 'center',
     marginTop: 12, marginBottom: 4,
   },
@@ -150,16 +346,17 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: SPACING.md,
-    paddingVertical: 12,
+    paddingVertical: 13,
     borderBottomWidth: 1,
     borderBottomColor: COLORS.border,
     backgroundColor: '#fff',
   },
-  closeBtn: {
-    width: 32, height: 32,
+  backBtn: {
+    width: 36, height: 36,
     borderRadius: RADIUS.full,
     backgroundColor: COLORS.cream,
     alignItems: 'center', justifyContent: 'center',
+    borderWidth: 1, borderColor: COLORS.border,
   },
   headerTitle: {
     fontFamily: FONTS.serif,
@@ -167,23 +364,25 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: COLORS.chocolate,
   },
+
+  /* Scroll */
   scroll: { flex: 1 },
-  content: {
-    paddingBottom: 80,
-    gap: 0,
-  },
+  content: { paddingTop: 8 },
+
+  /* Section */
   section: {
     paddingHorizontal: SPACING.md,
     marginTop: SPACING.lg,
     gap: 8,
   },
   sectionTitle: {
-    fontSize: 11,
+    fontSize: 10.5,
     fontWeight: '700',
     color: COLORS.muted,
     textTransform: 'uppercase',
-    letterSpacing: 1.5,
+    letterSpacing: 1.8,
     marginLeft: 4,
+    marginBottom: 2,
   },
   sectionCard: {
     backgroundColor: '#fff',
@@ -192,43 +391,187 @@ const styles = StyleSheet.create({
     borderColor: COLORS.border,
     overflow: 'hidden',
   },
+
+  /* Row */
   row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 13,
+    paddingVertical: 13,
+    paddingHorizontal: SPACING.md,
+    minHeight: 62,
+  },
+  iconBadge: {
+    width: 36, height: 36,
+    borderRadius: RADIUS.sm,
+    alignItems: 'center', justifyContent: 'center',
+    flexShrink: 0,
+  },
+  rowText: { flex: 1, gap: 2 },
+  rowLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: COLORS.chocolate,
+    lineHeight: 18,
+  },
+  rowDesc: {
+    fontSize: 11.5,
+    color: COLORS.muted,
+    lineHeight: 15,
+  },
+  rowValue: {
+    fontSize: 13,
+    color: COLORS.muted,
+    fontWeight: '400',
+    marginRight: 2,
+  },
+  dangerText: { color: '#dc2626' },
+  divider: {
+    height: 1,
+    backgroundColor: COLORS.border,
+    marginLeft: SPACING.md + 36 + 13,
+  },
+
+  /* Toggle */
+  toggle: {
+    width: 48, height: 28,
+    borderRadius: 14,
+    backgroundColor: COLORS.borderSolid,
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  toggleOn: { backgroundColor: COLORS.chocolate },
+  toggleThumb: {
+    width: 22, height: 22,
+    borderRadius: 11,
+    backgroundColor: '#fff',
+    ...SHADOWS.sm,
+  },
+
+  /* Version badge */
+  versionBadge: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: COLORS.muted,
+    backgroundColor: COLORS.cream,
+    borderRadius: RADIUS.full,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    overflow: 'hidden',
+  },
+
+  /* Bottom buttons */
+  bottomBtns: {
+    paddingHorizontal: SPACING.md,
+    marginTop: SPACING.xl,
+    gap: 10,
+  },
+  btnLogout: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 14,
+    borderRadius: RADIUS.full,
+    backgroundColor: '#fff',
+    borderWidth: 1.5,
+    borderColor: '#fecaca',
+  },
+  btnLogoutText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#dc2626',
+  },
+  btnReset: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 7,
+    paddingVertical: 13,
+    borderRadius: RADIUS.full,
+    backgroundColor: COLORS.cream,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  btnResetText: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: COLORS.muted,
+  },
+
+  /* Footer */
+  footer: {
+    alignItems: 'center',
+    paddingTop: SPACING.xl,
+    gap: 4,
+  },
+  footerVersion: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: COLORS.muted,
+  },
+  footerMade: {
+    fontSize: 11,
+    color: COLORS.mutedLight,
+  },
+
+  /* Language picker */
+  backdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(44,24,16,0.4)',
+  },
+  langSheet: {
+    position: 'absolute',
+    bottom: 0, left: 0, right: 0,
+    backgroundColor: '#fff',
+    borderTopLeftRadius: RADIUS.xxl,
+    borderTopRightRadius: RADIUS.xxl,
+    paddingBottom: 40,
+    ...SHADOWS.lg,
+  },
+  langHandle: {
+    width: 36, height: 4,
+    borderRadius: 2,
+    backgroundColor: COLORS.borderSolid,
+    alignSelf: 'center',
+    marginTop: 12, marginBottom: 16,
+  },
+  langTitle: {
+    fontFamily: FONTS.serif,
+    fontSize: 18,
+    fontWeight: '700',
+    color: COLORS.chocolate,
+    textAlign: 'center',
+    marginBottom: 12,
+    paddingHorizontal: SPACING.md,
+  },
+  langRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 14,
     paddingVertical: 14,
-    paddingHorizontal: SPACING.md,
+    paddingHorizontal: SPACING.lg,
+    marginHorizontal: SPACING.md,
+    borderRadius: RADIUS.lg,
+    marginBottom: 4,
   },
-  rowIconWrap: {
-    width: 34, height: 34,
-    borderRadius: RADIUS.sm,
-    backgroundColor: COLORS.cream,
-    alignItems: 'center', justifyContent: 'center',
+  langRowActive: {
+    backgroundColor: '#fdf5ee',
+    borderWidth: 1,
+    borderColor: COLORS.border,
   },
-  rowIconDanger: {
-    backgroundColor: '#fee2e2',
+  langFlag: { fontSize: 28 },
+  langName: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: COLORS.chocolate,
+    lineHeight: 20,
   },
-  rowLabel: {
-    flex: 1,
-    fontSize: 14, fontWeight: '500', color: COLORS.chocolate,
+  langNameActive: { color: COLORS.chocolate },
+  langSub: {
+    fontSize: 12,
+    color: COLORS.muted,
   },
-  rowValue: {
-    fontSize: 13, color: COLORS.muted, fontWeight: '400',
-    marginRight: 4,
-  },
-  divider: {
-    height: 1,
-    backgroundColor: COLORS.border,
-    marginLeft: SPACING.md + 34 + 14,
-  },
-  toggle: {
-    width: 46, height: 26, borderRadius: 13,
-    backgroundColor: COLORS.border, padding: 3,
-    justifyContent: 'center',
-  },
-  toggleActive: { backgroundColor: COLORS.chocolate },
-  toggleThumb: {
-    width: 20, height: 20, borderRadius: 10, backgroundColor: '#fff',
-  },
-  toggleThumbActive: { transform: [{ translateX: 20 }] },
 })
